@@ -1,0 +1,8 @@
+services:
+  db:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning --requirepass tessa
+    volumes: 
+      - ./data:/data
