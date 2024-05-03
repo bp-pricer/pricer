@@ -1,6 +1,6 @@
-pub mod bptf;
+use self::bptf::types::Listing;
 
-use self::bptf::Listing;
+pub mod bptf;
 
 #[derive(Debug)]
 pub enum PricingError {

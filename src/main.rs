@@ -1,6 +1,6 @@
 use crate::sources::PriceSource;
 use log::info;
-use sources::bptf::{BackpackTF, Listing};
+use sources::bptf::BackpackTF;
 use tf2_sku::{tf2_enum::Quality, SKU};
 
 pub mod sources;
