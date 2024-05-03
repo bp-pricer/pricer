@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tokio-tungstenite = { version = "*", features = ["rustls-tls-native-roots"] }
 dotenvy = "0.15.7"
 log = "0.4.21"
 pretty_env_logger = "0.5.0"
