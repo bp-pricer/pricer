@@ -44,7 +44,7 @@ async fn main() {
         listing.price
     );*/
 
-    let quality = Quality::Unique;
+    /*  let quality = Quality::Unique;
     let tradable = true;
     let craftable = true;
     let priceindex = "0".to_owned();
@@ -60,7 +60,7 @@ async fn main() {
 
     for listing in listings {
         info!("{:?}", listing.details);
-    }
+    }*/
     /*    .iter()
     .for_each(|listing| {
         info!("Price: {:?}", listing.price);
@@ -78,4 +78,6 @@ async fn main() {
             .filter_outliers()
             .get_average(),
     );*/
+
+    bptf.stream_events().await;
 }

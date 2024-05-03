@@ -1,13 +1,17 @@
-use crate::sources::PricingError;
-use log::error;
-use reqwest::Client;
-
 use self::types::{Listing, ListingResponse};
+use crate::sources::{bptf::event::Event, PricingError};
+use futures_util::StreamExt;
+use log::{error, info};
+use reqwest::Client;
+use serde_json::json;
+use tokio_tungstenite::{client_async_tls, connect_async};
 
 use super::PriceSource;
 
 const BASE_URL: &str = "https://backpack.tf/api";
+const WS_URL: &str = "wss://ws.backpack.tf/events";
 
+pub mod event;
 pub mod types;
 
 #[derive(Clone)]
@@ -28,6 +32,51 @@ impl BackpackTF {
             user_token,
             auth_key,
         })
+    }
+
+    /// Reads the stream of events from the Backpack.tf websocket in a loop
+    ///
+    /// This is used later to update the price on demand
+    pub async fn stream_events(&self) {
+        let (ws_stream, _) = match connect_async(WS_URL).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                error!("Failed to connect to Backpack.tf websocket: {:?}", e);
+                return;
+            }
+        };
+
+        let (_, read) = ws_stream.split();
+
+        read.for_each(|msg| async {
+            let msg = match msg {
+                Ok(msg) => msg,
+                Err(e) => {
+                    error!("Failed to read message from Backpack.tf websocket: {:?}", e);
+                    return;
+                }
+            };
+
+            let msg = match msg.to_text() {
+                Ok(msg) => msg,
+                Err(e) => {
+                    error!(
+                        "Failed to parse message from Backpack.tf websocket: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+
+            let events: Vec<Event> = match serde_json::from_str(msg) {
+                Ok(events) => events,
+                Err(e) => {
+                    error!("Failed to deserialize events: {:?}", e);
+                    return;
+                }
+            };
+        })
+        .await;
     }
 
     /// Requests a snapshot of the given item from Backpack.tf

@@ -2,7 +2,6 @@ use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::deserialize_number_from_string;
 use tf_item_attributes::TFItemAttribute;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PriceHistory {
     success: i8,
