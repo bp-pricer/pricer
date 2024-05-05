@@ -1,83 +1,48 @@
-use crate::sources::PriceSource;
-use log::info;
-use sources::bptf::BackpackTF;
-use tf2_sku::{tf2_enum::Quality, SKU};
+use bptf::BackpackTF;
+use db::Database;
 
-pub mod sources;
+pub mod bptf;
+pub mod db;
+pub mod event;
+pub mod types;
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
     pretty_env_logger::init();
 
-    let bptf = BackpackTF::new(
+    let db = Database::default();
+
+    let mut bptf = BackpackTF::new(
         std::env::var("BPTF_API_KEY").unwrap(),
         std::env::var("BPTF_USER_KEY").unwrap(),
+        db.clone(),
     )
     .unwrap();
 
-    let item = "Mann Co. Supply Crate Key";
+    let item_str = match std::env::var("ITEMS") {
+        Ok(item_str) => item_str,
+        Err(_) => {
+            panic!("ITEMS not set in .env");
+        }
+    };
 
-    // start timer to measure how long it takes to get the lowest seller
-    // let listing = bptf.get_lowest_seller(item).await.unwrap();
+    let items = item_str.split(',').collect::<Vec<&str>>();
+    let items_owned: Vec<String> = items.iter().map(|&x| x.into()).collect();
+    let items_ws = items_owned.clone();
+    /*tokio::spawn(async move {
+        bptf.watch_snapshots(items.clone()).await;
+    })
+    .await;*/
 
-    /*  for v in 0..2 {
-        let bptf = bptf.clone();
-        tokio::spawn(async move {
-            let start = std::time::Instant::now();
-            let listing = bptf.get_lowest_seller(item).await.unwrap();
-            info!(
-                "Found lowest seller in {:?} for {:?} at {:?} ref",
-                start.elapsed(),
-                item,
-                listing.price
-            );
-            print!("{:?}", listing);
-        })
-        .await
-        .unwrap();
-    }*/
-    /*info!(
-        "Found lowest seller in {:?} for {:?} at {:?} ref",
-        start.elapsed(),
-        item,
-        listing.price
-    );*/
+    let bp_other = bptf.clone();
+    /*tokio::spawn(async move {
+        bptf.watch_snapshots(items_owned.clone()).await;
+    });*/
 
-    /*  let quality = Quality::Unique;
-    let tradable = true;
-    let craftable = true;
-    let priceindex = "0".to_owned();
+    tokio::spawn(async move {
+        bp_other.watch_websocket(items_ws).await;
+    });
 
-    let mut snapshot = bptf.get_snapshot(item).await.unwrap();
-
-    let listings = snapshot
-        .filter_not_selling()
-        .filter_outliers()
-        .filter_humans()
-        .listings
-        .clone();
-
-    for listing in listings {
-        info!("{:?}", listing.details);
-    }*/
-    /*    .iter()
-    .for_each(|listing| {
-        info!("Price: {:?}", listing.price);
-    }); */
-
-    /*info!(
-        "buying + selling: {:?}, selling: {:?}, buying: {:?}",
-        price_history.get_average(),
-        price_history
-            .is_not_selling()
-            .filter_outliers()
-            .get_average(),
-        history_clone
-            .is_not_buying()
-            .filter_outliers()
-            .get_average(),
-    );*/
-
-    bptf.stream_events().await;
+    std::thread::sleep(std::time::Duration::from_secs(100));
 }

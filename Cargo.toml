@@ -23,3 +23,4 @@ serde-aux = "4.5.0"
 regex = "1.10.4"
 futures-util = "0.3.30"
 redis = { version = "0.25.3", features = ["tokio-comp"] }
+md5 = "0.7.0"
