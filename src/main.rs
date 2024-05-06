@@ -36,13 +36,17 @@ async fn main() {
     .await;*/
 
     let bp_other = bptf.clone();
-    /*tokio::spawn(async move {
-        bptf.watch_snapshots(items_owned.clone()).await;
-    });*/
+    tokio::spawn(async move {
+        loop {
+            bptf.watch_snapshots(items_owned.clone()).await;
+            // TODO: probably move this to a new thread
+            db.scan_for_old_listings().await.unwrap();
+        }
+    });
 
     tokio::spawn(async move {
         bp_other.watch_websocket(items_ws).await;
     });
 
-    std::thread::sleep(std::time::Duration::from_secs(100));
+    std::thread::sleep(std::time::Duration::from_secs(100000));
 }

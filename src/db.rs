@@ -1,5 +1,7 @@
 use log::info;
 use redis::{AsyncCommands, Client, RedisError};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     event::{EventListing, EventListingDeletion},
@@ -168,6 +170,75 @@ impl Database {
                 "Updated {} listings, created {} listings from websocket",
                 updated, created
             );
+        }
+
+        Ok(())
+    }
+
+    pub async fn scan_for_old_listings(&self) -> Result<(), RedisError> {
+        let mut conn = match self.client.get_multiplexed_async_connection().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                panic!("Failed to get connection to redis: {:?}", e);
+            }
+        };
+
+        let keys: Vec<String> = match conn.keys("listing:*").await {
+            Ok(keys) => keys,
+            Err(e) => {
+                panic!("Failed to get keys from redis: {:?}", e);
+            }
+        };
+
+        let mut deleted = 0;
+
+        for key in keys {
+            let value: String = match conn.get(&key).await {
+                Ok(value) => value,
+                Err(e) => {
+                    panic!("Failed to get value from redis: {:?}", e);
+                }
+            };
+
+            let value: Value = match serde_json::from_str(&value) {
+                Ok(value) => value,
+                Err(e) => {
+                    panic!("Failed to deserialize value: {:?}", e);
+                }
+            };
+
+            // info!("Value: {:?}", value);
+
+            let bumped_at = if value.get("bumpedAt").is_some() {
+                let listing: EventListing = match serde_json::from_value(value) {
+                    Ok(listing) => listing,
+                    Err(e) => {
+                        panic!("Failed to deserialize listing: {:?}", e);
+                    }
+                };
+
+                listing.bumped_at
+            } else {
+                // info!("Pasing as listing");
+                let listing: Listing = match serde_json::from_value(value) {
+                    Ok(listing) => listing,
+                    Err(e) => {
+                        panic!("Failed to deserialize listing: {:?}", e);
+                    }
+                };
+
+                listing.bump
+            };
+
+            if bumped_at < (chrono::Utc::now().timestamp() - 86400) as u32 {
+                conn.del::<&str, bool>(&key).await.unwrap();
+                deleted += 1;
+                //info!("Deleted listing with id {}, reason: too old", listing.id);
+            }
+        }
+
+        if deleted > 0 {
+            info!("Deleted {} listings that were too old", deleted);
         }
 
         Ok(())
