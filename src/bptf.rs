@@ -51,6 +51,7 @@ impl BackpackTF {
             if let Err(e) = snapshot {
                 if e == PricingError::IsAlreadyCached {
                     debug!("Snapshot for item {} is already cached", item);
+                    continue;
                 }
                 error!("Failed to get snapshot for item {}: {:?}", item, e);
                 continue;
