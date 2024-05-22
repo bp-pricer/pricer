@@ -1,7 +1,6 @@
+use log::info;
 use serde::{Deserialize, Serialize};
-use serde_aux::prelude::deserialize_number_from_string;
-
-use super::types::{Item, Listing, StrIntValue};
+use super::types::{Listing, StrIntValue};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "event", content = "payload")]
@@ -28,6 +27,13 @@ pub struct EventListing {
     pub status: String,
     pub source: String,
     pub item: EventItem,
+    #[serde(rename = "value")]
+    pub value: ListingValue,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ListingValue {
+    raw: f32
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,20 +52,68 @@ pub struct BPCurrencies {
 pub struct EventItem {
     pub id: StrIntValue,
     #[serde(rename = "originalId")]
-    pub original_id: StrIntValue,
+    pub original_id: Option<StrIntValue>,
     pub name: String,
     pub defindex: u32,
 }
 
-/*
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Event {
-    pub event: EventType,
-    #[serde(flatten)]
-    pub listing: Listing,
-}*/
 
-/*#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "type", content = "payload")]
-pub enum Event {
-}*/
+
+
+/// Universal listing type used to be converted from/to to store in the database
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UniversalListing {
+    pub id: Option<String>,
+    pub steamid: String,
+    pub details: Option<String>,
+    pub intent: String,
+    pub price: f32,
+    pub bumped_at: f32,
+    pub item: UniversalItem,
+    // TODO: user agent, item, timestamp?
+}
+
+impl From<Listing> for UniversalListing {
+    fn from(listing: Listing) -> Self {
+      //  info!("listing item id: {:?}", listing.item.id);
+        Self {
+            id: None,
+            steamid: listing.steamid,
+            details: Some(listing.details),
+            intent: listing.intent,
+            price: listing.price,
+            bumped_at: listing.timestamp as f32,
+            item: UniversalItem {
+                id: Some(StrIntValue::Int(listing.item.id.unwrap_or(0))),
+                defindex: listing.item.defindex as u32,
+            },
+        }
+    }
+}
+
+impl From<EventListing> for UniversalListing {
+    fn from(event_listing: EventListing) -> Self {
+      //  info!("eventlisting item id: {:?}", event_listing.item.id);
+        Self {
+            id: Some(event_listing.id),
+            steamid: event_listing.steamid,
+            details: event_listing.details,
+            intent: event_listing.intent,
+            price: event_listing.value.raw,
+            bumped_at: event_listing.bumped_at as f32,
+            item: UniversalItem {
+                id: Some(StrIntValue::Int(event_listing.item.id.into())),
+                defindex: event_listing.item.defindex,
+            },
+        }
+    }
+
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UniversalItem {
+    pub id: Option<StrIntValue>,
+    // TODO: check if this is relevant
+    //pub original_id: Option<StrIntValue>,
+    pub defindex: u32,
+}

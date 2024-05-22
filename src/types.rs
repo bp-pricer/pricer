@@ -1,9 +1,11 @@
 use chrono::{Duration, Utc};
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::deserialize_number_from_string;
 use tf_item_attributes::TFItemAttribute;
+use tokio::sync::oneshot::error;
+use log::error;
 
-use super::event::{EventItem, EventListing};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PriceHistory {
     success: i8,
@@ -63,7 +65,7 @@ pub struct Listing {
     buyout: i32,
     pub details: String,
     pub intent: String,
-    timestamp: u32,
+    pub timestamp: u32,
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub price: f32,
     pub item: Item,
@@ -103,7 +105,21 @@ pub enum StrIntValue {
 impl Into<u64> for StrIntValue {
     fn into(self) -> u64 {
         match self {
-            StrIntValue::Str(s) => s.parse().unwrap(),
+            StrIntValue::Str(s) => {
+                if s.is_empty() {
+                    return 0;
+                }
+
+                let v:  u64 = match s.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        error!("Failed to parse StrIntValue into u64: {}", s);
+                        0
+                    },
+                };
+                
+                v
+            },
             StrIntValue::Int(i) => i,
             StrIntValue::Float(f) => f as u64,
         }

@@ -1,10 +1,9 @@
 use log::info;
 use redis::{AsyncCommands, Client, RedisError};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    event::{EventListing, EventListingDeletion},
+    event::{EventListing, EventListingDeletion, UniversalItem, UniversalListing},
     types::Listing,
 };
 
@@ -45,15 +44,18 @@ impl Database {
                 }
             };
 
+            let id = listing.id.clone();
+
             let key = format!("listing:{}:{}", listing.item.defindex, listing.id);
-            let value = serde_json::to_string(&listing).unwrap();
+            let db_listing: UniversalListing = listing.into();
+            let value = serde_json::to_string(&db_listing).unwrap();
 
             match con.set(key, value).await {
                 Ok(()) => {
-                    info!("Stored listing with id {}", listing.id);
+                    info!("Stored listing with id {}", id);
                 }
                 Err(e) => {
-                    panic!("Failed to store listing with id {}: {:?}", listing.id, e);
+                    panic!("Failed to store listing with id {}: {:?}", id, e);
                 }
             }
         }
@@ -137,7 +139,8 @@ impl Database {
 
         for listing in listings {
             let key = format!("listing:{}:{}", listing.item.defindex, listing.id);
-            let value = serde_json::to_string(&listing).unwrap();
+            let db_listing: UniversalListing = listing.into();
+            let value = serde_json::to_string(&db_listing).unwrap();
 
             match conn.exists(key.clone()).await {
                 Ok(exists) => {
@@ -200,37 +203,14 @@ impl Database {
                 }
             };
 
-            let value: Value = match serde_json::from_str(&value) {
-                Ok(value) => value,
+            let db_listing: UniversalListing = match serde_json::from_str(&value) {
+                Ok(db_listing) => db_listing,
                 Err(e) => {
-                    panic!("Failed to deserialize value: {:?}", e);
+                    panic!("Failed to deserialize listing: {:?}", e);
                 }
             };
 
-            // info!("Value: {:?}", value);
-
-            let bumped_at = if value.get("bumpedAt").is_some() {
-                let listing: EventListing = match serde_json::from_value(value) {
-                    Ok(listing) => listing,
-                    Err(e) => {
-                        panic!("Failed to deserialize listing: {:?}", e);
-                    }
-                };
-
-                listing.bumped_at
-            } else {
-                // info!("Pasing as listing");
-                let listing: Listing = match serde_json::from_value(value) {
-                    Ok(listing) => listing,
-                    Err(e) => {
-                        panic!("Failed to deserialize listing: {:?}", e);
-                    }
-                };
-
-                listing.bump
-            };
-
-            if bumped_at < (chrono::Utc::now().timestamp() - 86400) as u32 {
+            if db_listing.bumped_at < (chrono::Utc::now().timestamp() - 86400) as f32 {
                 conn.del::<&str, bool>(&key).await.unwrap();
                 deleted += 1;
                 //info!("Deleted listing with id {}, reason: too old", listing.id);
@@ -295,7 +275,9 @@ impl Database {
                 }
             }
 
-            let value = serde_json::to_string(&listing).unwrap();
+            let db_value: UniversalListing = listing.into();
+            let value = serde_json::to_string(&db_value).unwrap();
+
 
             match con.set(key.clone(), value).await {
                 Ok(()) => {
@@ -318,7 +300,7 @@ impl Database {
 
     /// Get all the listings for a given item defindex
     /// This also deletes all the listings that are older than 7 days
-    pub async fn get_item_listings(&self, defindex: u32) -> Result<Vec<EventListing>, RedisError> {
+    pub async fn get_item_listings(&self, defindex: u32) -> Result<Vec<UniversalListing>, RedisError> {
         let mut con = match self.client.get_multiplexed_async_connection().await {
             Ok(con) => con,
             Err(e) => {
@@ -344,22 +326,22 @@ impl Database {
                 }
             };
 
-            let listing: EventListing = match serde_json::from_str(&value) {
+            let listing: UniversalListing = match serde_json::from_str(&value) {
                 Ok(listing) => listing,
                 Err(e) => {
                     panic!("Failed to deserialize listing: {:?}", e);
                 }
             };
 
-            if listing.bumped_at < (chrono::Utc::now().timestamp() - 259200) as u32 {
+            if listing.bumped_at < (chrono::Utc::now().timestamp() - 259200) as f32 {
                 // I have no clue what those args are
                 con.del::<&str, bool>(&key).await.unwrap();
-                info!("Deleted listing with id {}, reason: too old", listing.id);
+                info!("Deleted listing with id {:?}, reason: too old", listing.id);
             }
 
             listings.push(listing);
         }
 
         Ok(listings)
-    }
+    } 
 }
