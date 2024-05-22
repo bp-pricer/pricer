@@ -1,4 +1,4 @@
-use log::info;
+use log::{error, info, warn};
 use redis::{AsyncCommands, Client, RedisError};
 use serde_json::Value;
 
@@ -199,7 +199,9 @@ impl Database {
             let value: String = match conn.get(&key).await {
                 Ok(value) => value,
                 Err(e) => {
-                    panic!("Failed to get value from redis: {:?}", e);
+                    warn!("Failed to get value from redis: {:?} - key: {:?}", e, key);
+                    //panic!();
+                    continue;
                 }
             };
 
@@ -210,10 +212,15 @@ impl Database {
                 }
             };
 
-            if db_listing.bumped_at < (chrono::Utc::now().timestamp() - 86400) as f32 {
+            if db_listing.bumped_at < (chrono::Utc::now().timestamp() - 86400) as u32 {
                 conn.del::<&str, bool>(&key).await.unwrap();
                 deleted += 1;
-                //info!("Deleted listing with id {}, reason: too old", listing.id);
+                info!(
+                    "Deleted listing with key {}, reason: too old (bumped {}m ago), {:?}",
+                    key,
+                    (chrono::Utc::now().timestamp() - db_listing.bumped_at as i64) / 60,
+                    db_listing
+                );
             }
         }
 
@@ -244,6 +251,12 @@ impl Database {
 
         for listing in listings {
             let mut key = String::new();
+
+            // skip listings without a user agent aka. not a bot
+            if listing.user_agent.is_none() {
+                continue;
+            }
+
             if listing.intent == "sell" {
                 let item_id = match listing.item.id {
                     Some(id) => id,
@@ -278,7 +291,6 @@ impl Database {
             let db_value: UniversalListing = listing.into();
             let value = serde_json::to_string(&db_value).unwrap();
 
-
             match con.set(key.clone(), value).await {
                 Ok(()) => {
                     //info!("Modified listing with key {}", key);
@@ -300,7 +312,10 @@ impl Database {
 
     /// Get all the listings for a given item defindex
     /// This also deletes all the listings that are older than 7 days
-    pub async fn get_item_listings(&self, defindex: u32) -> Result<Vec<UniversalListing>, RedisError> {
+    pub async fn get_item_listings(
+        &self,
+        defindex: u32,
+    ) -> Result<Vec<UniversalListing>, RedisError> {
         let mut con = match self.client.get_multiplexed_async_connection().await {
             Ok(con) => con,
             Err(e) => {
@@ -333,7 +348,7 @@ impl Database {
                 }
             };
 
-            if listing.bumped_at < (chrono::Utc::now().timestamp() - 259200) as f32 {
+            if listing.bumped_at < (chrono::Utc::now().timestamp() - 259200) as u32 {
                 // I have no clue what those args are
                 con.del::<&str, bool>(&key).await.unwrap();
                 info!("Deleted listing with id {:?}, reason: too old", listing.id);
@@ -343,5 +358,5 @@ impl Database {
         }
 
         Ok(listings)
-    } 
+    }
 }
