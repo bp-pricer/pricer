@@ -1,10 +1,10 @@
 use chrono::{Duration, Utc};
+use log::error;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::deserialize_number_from_string;
 use tf_item_attributes::TFItemAttribute;
 use tokio::sync::oneshot::error;
-use log::error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PriceHistory {
@@ -71,7 +71,7 @@ pub struct Listing {
     pub item: Item,
     pub bump: u32,
     #[serde(rename = "userAgent")]
-    user_agent: Option<UserAgent>,
+    pub user_agent: Option<UserAgent>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -110,16 +110,16 @@ impl Into<u64> for StrIntValue {
                     return 0;
                 }
 
-                let v:  u64 = match s.parse() {
+                let v: u64 = match s.parse() {
                     Ok(v) => v,
                     Err(_) => {
                         error!("Failed to parse StrIntValue into u64: {}", s);
                         0
-                    },
+                    }
                 };
-                
+
                 v
-            },
+            }
             StrIntValue::Int(i) => i,
             StrIntValue::Float(f) => f as u64,
         }
