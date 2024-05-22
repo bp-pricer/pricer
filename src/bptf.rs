@@ -122,7 +122,7 @@ impl BackpackTF {
                 .into_iter()
                 .filter_map(|event| match event {
                     Event::ListingUpdate(listing) => {
-                        if items.contains(&listing.item.name) {
+                        if items.contains(&listing.item.name) && listing.source == "userAgent" {
                             Some(listing)
                         } else {
                             None
@@ -136,6 +136,7 @@ impl BackpackTF {
                 .into_iter()
                 .filter_map(|event| match event {
                     Event::ListingDelete(listing) => {
+                        // dont check for source here since its possible that the listing was deleted by the user
                         if items.contains(&listing.item.name) {
                             Some(listing)
                         } else {
