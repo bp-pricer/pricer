@@ -1,18 +1,16 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures_util::StreamExt;
-use log::{debug, error, info};
+use log::{debug, error};
 use reqwest::Client;
-use serde_json::json;
-use tokio_tungstenite::{
-    client_async_tls, connect_async, tungstenite::protocol::frame::coding::Data,
-};
+use tokio::sync::Mutex;
+use tokio_tungstenite::connect_async;
 
 use crate::{
     db::Database,
-    event::{Event, EventListingDeletion},
-    types::{Listing, ListingResponse, PricingError},
+    event::{Event, EventListing, EventListingDeletion},
+    types::{ListingResponse, PricingError},
 };
 
 const BASE_URL: &str = "https://backpack.tf/api";
@@ -23,7 +21,7 @@ pub struct BackpackTF {
     req_client: Client,
     auth_key: String,
     user_token: String,
-    db: Database,
+    db: Arc<Mutex<Database>>,
     // TODO: perf: look for faster hashmap implementation
     snapshot_cache: HashMap<String, u32>,
 }
@@ -39,7 +37,7 @@ impl BackpackTF {
             req_client: client,
             user_token,
             auth_key,
-            db: database,
+            db: Arc::new(Mutex::new(database)),
             snapshot_cache: HashMap::new(),
         })
     }
@@ -60,7 +58,13 @@ impl BackpackTF {
             let listings = snapshot.unwrap().listings;
             let listings_len = listings.len();
 
-            match self.db.update_listings_from_snapshot(listings, &item).await {
+            match self
+                .db
+                .lock()
+                .await
+                .update_listings_from_snapshot(listings, &item)
+                .await
+            {
                 Ok(_) => {
                     //    info!("Stored {} listings for item {}", listings_len, item);
                 }
@@ -84,7 +88,6 @@ impl BackpackTF {
         };
 
         let (_, read) = ws_stream.split();
-
         read.for_each(|msg| async {
             let msg = match msg {
                 Ok(msg) => msg,
@@ -117,12 +120,14 @@ impl BackpackTF {
                 }
             };
 
-            let listings = events
+            let listings: Vec<EventListing> = events
                 .clone()
                 .into_iter()
                 .filter_map(|event| match event {
                     Event::ListingUpdate(listing) => {
-                        if items.contains(&listing.item.name) && listing.source == "userAgent" {
+                        if items.contains(&listing.item.name)
+                            && listing.source == Some("userAgent".to_owned())
+                        {
                             Some(listing)
                         } else {
                             None
@@ -147,11 +152,24 @@ impl BackpackTF {
                 })
                 .collect();
 
-            self.db.handle_delete_events(listings_deleted).await;
             self.db
-                .update_listings_from_websocket(listings)
+                .lock()
+                .await
+                .update_listings_from_websocket(listings.clone())
                 .await
                 .unwrap();
+
+            self.db
+                .lock()
+                .await
+                .handle_delete_events(listings_deleted)
+                .await;
+            //self.db.handle_delete_events(listings_deleted).await;
+            /*self.db
+            .update_listings_from_websocket(listings.clone())
+            .await
+            .unwrap();*/
+
             /*    let listings: Vec<EventListing> = events
                 .into_iter()
                 .filter_map(|event| match event {
