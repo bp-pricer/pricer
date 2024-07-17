@@ -25,7 +25,7 @@ pub struct EventListing {
     pub bumped_at: u32,
     pub count: u32,
     pub status: String,
-    pub source: String,
+    pub source: Option<String>,
     pub item: EventItem,
     #[serde(rename = "value")]
     pub value: ListingValue,
