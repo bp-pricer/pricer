@@ -1,5 +1,5 @@
 use log::{error, info, warn};
-use redis::{AsyncCommands, Client, RedisError};
+use redis::{aio::MultiplexedConnection, AsyncCommands, Client, RedisError};
 use serde_json::Value;
 
 use crate::{
@@ -10,10 +10,12 @@ use crate::{
 #[derive(Clone)]
 pub struct Database {
     client: Client,
+    conn: MultiplexedConnection,
 }
 
-impl Default for Database {
-    fn default() -> Self {
+impl Database {
+    // default cant be async
+    pub async fn new() -> Self {
         let url = match std::env::var("REDIS_URL") {
             Ok(url) => url,
             Err(_) => {
@@ -30,27 +32,25 @@ impl Default for Database {
 
         info!("Successfully connected to the redis server");
 
-        Self { client }
+        let conn = match client.get_multiplexed_tokio_connection().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                panic!("Failed to get connection to redis: {:?}", e);
+            }
+        };
+
+        Self { client, conn }
     }
-}
 
-impl Database {
-    pub async fn store_listings(&self, listings: Vec<EventListing>) {
+    pub async fn store_listings(&mut self, listings: Vec<EventListing>) {
         for listing in listings {
-            let mut con = match self.client.get_multiplexed_async_connection().await {
-                Ok(con) => con,
-                Err(e) => {
-                    panic!("Failed to get connection to redis: {:?}", e);
-                }
-            };
-
             let id = listing.id.clone();
 
             let key = format!("listing:{}:{}", listing.item.defindex, listing.id);
             let db_listing: UniversalListing = listing.into();
             let value = serde_json::to_string(&db_listing).unwrap();
 
-            match con.set(key, value).await {
+            match self.conn.set(key, value).await {
                 Ok(()) => {
                     info!("Stored listing with id {}", id);
                 }
@@ -64,21 +64,14 @@ impl Database {
     /// Store the item definitions in the database
     /// one definition is a tuple of (name, defindex)
     pub async fn store_item_definitions(
-        &self,
+        &mut self,
         definitions: Vec<(String, u32)>,
     ) -> Result<(), RedisError> {
-        let mut con = match self.client.get_multiplexed_async_connection().await {
-            Ok(con) => con,
-            Err(e) => {
-                panic!("Failed to get connection to redis: {:?}", e);
-            }
-        };
-
         for (name, defindex) in definitions {
             let key = format!("item:{}", defindex);
             let value = name;
 
-            match con.set(key, value).await {
+            match self.conn.set(key, value).await {
                 Ok(()) => {
                     info!("Stored item definition with defindex {}", defindex);
                 }
@@ -94,20 +87,12 @@ impl Database {
         Ok(())
     }
 
-    pub async fn handle_delete_events(&self, listings: Vec<EventListingDeletion>) {
+    pub async fn handle_delete_events(&mut self, listings: Vec<EventListingDeletion>) {
         let mut deleted = 0;
-
-        let mut con = match self.client.get_multiplexed_async_connection().await {
-            Ok(con) => con,
-            Err(e) => {
-                panic!("Failed to get connection to redis: {:?}", e);
-            }
-        };
-
         for listing in listings {
             let key = format!("listing:{}:{}", listing.item.defindex, listing.id);
 
-            match con.del(key).await {
+            match self.conn.del(key).await {
                 Ok(()) => {
                     deleted += 1;
                     //info!("Deleted listing with id {}", listing.id);
@@ -124,16 +109,9 @@ impl Database {
     }
 
     pub async fn update_listings_from_websocket(
-        &self,
+        &mut self,
         listings: Vec<EventListing>,
     ) -> Result<(), RedisError> {
-        let mut conn = match self.client.get_multiplexed_async_connection().await {
-            Ok(conn) => conn,
-            Err(e) => {
-                panic!("Failed to get connection to redis: {:?}", e);
-            }
-        };
-
         let mut updated = 0;
         let mut created = 0;
 
@@ -142,7 +120,7 @@ impl Database {
             let db_listing: UniversalListing = listing.into();
             let value = serde_json::to_string(&db_listing).unwrap();
 
-            match conn.exists(key.clone()).await {
+            match self.conn.exists(key.clone()).await {
                 Ok(exists) => {
                     if exists {
                         updated += 1;
@@ -158,7 +136,7 @@ impl Database {
                 }
             }
 
-            match conn.set(key.clone(), value).await {
+            match self.conn.set(key.clone(), value).await {
                 Ok(()) => {
                     //info!("Modified listing with key {}", key);
                 }
@@ -179,7 +157,7 @@ impl Database {
     }
 
     pub async fn scan_for_old_listings(&self) -> Result<(), RedisError> {
-        let mut conn = match self.client.get_multiplexed_async_connection().await {
+        let mut conn = match self.client.get_multiplexed_tokio_connection().await {
             Ok(conn) => conn,
             Err(e) => {
                 panic!("Failed to get connection to redis: {:?}", e);
@@ -242,22 +220,21 @@ impl Database {
     ) -> Result<(), RedisError> {
         let mut updated = 0;
         let mut created = 0;
-        let mut con = match self.client.get_multiplexed_async_connection().await {
+        let mut con = match self.client.get_multiplexed_tokio_connection().await {
             Ok(con) => con,
             Err(e) => {
                 panic!("Failed to get connection to redis: {:?}", e);
             }
         };
 
+        let listing_len = listings.len();
         for listing in listings {
-            let mut key = String::new();
-
             // skip listings without a user agent aka. not a bot
             if listing.user_agent.is_none() {
                 continue;
             }
 
-            if listing.intent == "sell" {
+            let key = if listing.intent == "sell" {
                 let item_id = match listing.item.id {
                     Some(id) => id,
                     None => {
@@ -265,17 +242,24 @@ impl Database {
                     }
                 };
                 let id = format!("440_{}", item_id);
-                key = format!("listing:{}:{}", listing.item.defindex, id);
+                format!("listing:{}:{}", listing.item.defindex, id)
             } else {
                 let id = format!("440_{}_{:x}", listing.steamid, md5::compute(item));
-                key = format!("listing:{}:{}", listing.item.defindex, id);
-            }
+                format!("listing:{}:{}", listing.item.defindex, id)
+            };
+
+            let db_value: UniversalListing = listing.into();
+            let value = serde_json::to_string(&db_value).unwrap();
 
             // TODO: remove this, debug only
             match con.exists(key.clone()).await {
                 Ok(exists) => {
                     if exists {
-                        updated += 1;
+                        let v: String = con.get(&key).await.unwrap();
+
+                        if v != value {
+                            updated += 1;
+                        }
                     } else {
                         created += 1;
                     }
@@ -287,9 +271,6 @@ impl Database {
                     );
                 }
             }
-
-            let db_value: UniversalListing = listing.into();
-            let value = serde_json::to_string(&db_value).unwrap();
 
             match con.set(key.clone(), value).await {
                 Ok(()) => {
@@ -303,8 +284,10 @@ impl Database {
 
         if updated > 0 || created > 0 {
             info!(
-                "Updated {} listings, created {} listings from snapshot",
-                updated, created
+                "Snapshot - Updated: {}, Created: {}, Ignored: {}",
+                updated,
+                created,
+                listing_len - updated - created
             );
         }
         Ok(())
