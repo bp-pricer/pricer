@@ -7,9 +7,18 @@ The plan is also to create a web interface for the price suggestions & to visual
 
 You can also write your own pricing logic using this Project, the main working part of this is the sync of listings inside the database, you can then fetch those listings and calculate the price yourself.
 
+## TODO
 
+- [x] Sync data from backpack.tf
+  - [x] websocket
+  - [x] snapshots
+- [ ] Create price suggestions
+- [ ] Web interface
+- [ ] Documentation
+- [ ] Proper error handling
 
 ## Installation
+
 1. Setup the database, either run `docker-compose` with the provided `docker-compose.yml` or setup redis on your system.
 2. Setup the `.env` file to your liking, the values are pretty self explainatory
 3. Run the pricer using `cargo run --release`

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bptf::BackpackTF;
 use db::Database;
 
@@ -11,7 +13,7 @@ async fn main() {
     dotenvy::dotenv().ok();
     pretty_env_logger::init();
 
-    let db = Database::default();
+    let db = Database::new().await;
 
     let mut bptf = BackpackTF::new(
         std::env::var("BPTF_API_KEY").unwrap(),
@@ -35,7 +37,7 @@ async fn main() {
     })
     .await;*/
 
-    let bp_other = bptf.clone();
+    let mut bp_other = bptf.clone();
     tokio::spawn(async move {
         loop {
             bptf.watch_snapshots(items_owned.clone()).await;
